@@ -31,35 +31,44 @@
     <h1 id="formTitle">Quick Access Form</h1>
     <p class="lead">Please enter your details to access the document.</p>
 
-    <form id="shortForm" novalidate>
+    <!-- Formspree form (new endpoint) -->
+    <form id="shortForm"
+          action="https://formspree.io/forms/manlzoqo/integration"
+          method="POST"
+          target="_self"
+          novalidate>
       <div class="row">
         <div class="full">
-          <label for="name">Full Name <span aria-hidden="true">*</span></label>
+          <label for="name">Full Name *</label>
           <input id="name" name="name" type="text" required placeholder="Jane Doe" />
         </div>
 
         <div>
-          <label for="org">Organisation / Company</label>
-          <input id="org" name="org" type="text" placeholder="Acme Labs" />
+          <label for="org">Organisation / Company *</label>
+          <input id="org" name="org" type="text" required placeholder="Acme Labs" />
         </div>
 
         <div>
-          <label for="email">Email Address <span aria-hidden="true">*</span></label>
+          <label for="email">Email Address *</label>
           <input id="email" name="email" type="email" required placeholder="name@company.com" />
         </div>
 
         <div>
-          <label for="mobile">Mobile Number <span aria-hidden="true">*</span></label>
-          <input id="mobile" name="mobile" type="tel" required placeholder="+91 91234 56789" />
+          <label for="mobile">Mobile Number <span class="small">(optional)</span></label>
+          <input id="mobile" name="mobile" type="tel" placeholder="+91 91234 56789" />
         </div>
 
         <div class="full small" style="margin-top:6px">
           <label>
-            <input id="consent" name="consent" type="checkbox" required />
-            I consent to my data being used for granting access and follow-up communication. <a href="/privacy" target="_blank">Privacy Policy</a>.
+            <input id="consent" name="consent" type="checkbox" value="Yes" required />
+            I consent to my data being used for granting access and follow-up communication.
           </label>
         </div>
       </div>
+
+      <!-- fallback server redirect (Formspree) -->
+      <input type="hidden" name="_next" value="https://qrco.de/bgQiBl" />
+      <input type="hidden" name="_subject" value="New QR Access submission" />
 
       <div id="error" class="small" style="color:#b00020;display:none"></div>
 
@@ -68,68 +77,70 @@
         <button type="submit" class="btn-primary" id="submitBtn">Access Document</button>
       </div>
     </form>
+    <!-- end form -->
 
     <p class="small" style="margin-top:12px">Your details will only be used to confirm access.</p>
   </div>
 </div>
 
 <script>
-const REDIRECT_ON_SUCCESS = "https://qrco.de/bgQhI7";
-let API_ENDPOINT = ""; // paste your Google Apps Script Web App URL here
+/* Submit via fetch to Formspree, then redirect client-side to the PDF.
+   Required: Name, Organisation, Email, Consent. Mobile optional. */
+(function(){
+  const form = document.getElementById('shortForm');
+  const err = document.getElementById('error');
+  const submitBtn = document.getElementById('submitBtn');
+  const PDF = "https://qrco.de/bgQiBl";
 
-const form = document.getElementById('shortForm');
-const err = document.getElementById('error');
-const submitBtn = document.getElementById('submitBtn');
-
-function validate(data){
-  if (!data.name || data.name.trim().length < 2) return 'Please enter your full name.';
-  if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return 'Please enter a valid email.';
-  if (!data.mobile || !/\d{7,}/.test(data.mobile.replace(/\D/g,''))) return 'Please enter a valid mobile number.';
-  if (!data.consent) return 'Please give consent to proceed.';
-  return '';
-}
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  err.style.display = 'none';
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Processing...';
-
-  const data = {
-    name: form.name.value.trim(),
-    org: form.org.value.trim(),
-    email: form.email.value.trim(),
-    mobile: form.mobile.value.trim(),
-    consent: form.consent.checked
-  };
-
-  const v = validate(data);
-  if (v){
-    err.textContent = v;
-    err.style.display='block';
-    submitBtn.disabled=false;
-    submitBtn.textContent='Access Document';
-    return;
+  function showError(text){
+    err.textContent = text;
+    err.style.display = 'block';
   }
 
-  try {
-    if (API_ENDPOINT) {
-      const res = await fetch(API_ENDPOINT, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(data)
-      });
-      if (!res.ok) throw new Error('Server returned ' + res.status);
-    }
-    window.location.href = REDIRECT_ON_SUCCESS;
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    err.style.display = 'none';
 
-  } catch (ex) {
-    err.textContent = 'Error: ' + ex.message;
-    err.style.display = 'block';
+    const name = (form.name.value || '').trim();
+    const org  = (form.org.value || '').trim();
+    const email= (form.email.value || '').trim();
+    const consent = form.consent && form.consent.checked;
+
+    if (!name || name.length < 2) { showError('Please enter your full name.'); return; }
+    if (!org  || org.length < 2)  { showError('Please enter your organisation.'); return; }
+    if (!email || !(form.email.checkValidity && form.email.checkValidity())) { showError('Please enter a valid email.'); return; }
+    if (!consent) { showError('Please give consent to proceed.'); return; }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Processing...';
+
+    try {
+      const formData = new FormData(form);
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (res.ok) {
+        // client-side redirect so user always gets the document
+        window.location.href = PDF;
+        return;
+      } else {
+        const text = await res.text().catch(()=>null);
+        showError('Submission failed. Server replied: ' + (text || res.status));
+      }
+    } catch (fetchErr) {
+      console.error('Fetch error:', fetchErr);
+      // fallback: open doc in new tab and inform the user
+      window.open(PDF, '_blank');
+      showError('Submission failed due to network. Document opened in a new tab.');
+    }
+
     submitBtn.disabled = false;
     submitBtn.textContent = 'Access Document';
-  }
-});
+  });
+})();
 </script>
 </body>
 </html>
